@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: stg_chw_activities
+    description: "Staged CHW activities with month assignment"
+    columns:
+      - name: chv_id
+        description: "Community Health Volunteer ID"
+        tests:
+          - not_null
+
+      - name: activity_date
+        description: "Date the activity occurred"
+        tests:
+          - not_null
+
+      - name: report_month
+        description: "Assigned reporting month (first day of month) following 26th cutoff rule"
+        tests:
+          - not_null

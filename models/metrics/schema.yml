@@ -1,0 +1,204 @@
+version: 2
+
+models:
+  - name: chw_activity_monthly
+    description: |
+      Monthly CHW performance metrics with 26th day cutoff rule.
+      Activities on or after the 26th are assigned to the next month.
+      Uses incremental materialization with delete+insert strategy.
+    
+    # Model-level tests
+    tests:
+      # Test: Composite unique key
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - chv_id
+            - report_month
+          config:
+            severity: error
+      
+      # Test: Total activities should be >= sum of activity types
+      - dbt_utils.expression_is_true:
+          expression: "total_activities >= (pregnancy_visits + child_assessments + family_planning_visits)"
+          config:
+            severity: error
+    
+    columns:
+      - name: chv_id
+        description: "Community Health Volunteer ID"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - relationships:
+              to: source('marts', 'fct_chv_activity')
+              field: chv_id
+              config:
+                severity: warn
+
+      - name: report_month
+        description: |
+          Reporting month (first day of month, DATE format: YYYY-MM-01).
+          Activities on/after the 26th are assigned to the next month.
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: total_activities
+        description: "Total activities performed by this CHW in the month"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          # Test: Must be non-negative
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+              config:
+                severity: error
+          # Test: Warn if unusually high (>1000 activities per month)
+          - dbt_utils.expression_is_true:
+              expression: "<= 1000"
+              config:
+                severity: warn
+
+      - name: unique_households_visited
+        description: "Distinct households visited (deduplicated count)"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          # Test: Must be non-negative
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+          # Test: Cannot exceed total activities
+          - dbt_utils.expression_is_true:
+              expression: "<= total_activities"
+              config:
+                severity: error
+
+      - name: unique_patients_served
+        description: "Distinct patients served (deduplicated count, NULLs excluded)"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          # Test: Must be non-negative
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+          # Test: Cannot exceed total activities
+          - dbt_utils.expression_is_true:
+              expression: "<= total_activities"
+              config:
+                severity: error
+
+      - name: pregnancy_visits
+        description: "Number of pregnancy-related visits (activity_type = 'pregnancy_visit')"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          # Test: Must be non-negative
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+              config:
+                severity: error
+
+      - name: child_assessments
+        description: "Number of child health assessments (activity_type = 'child_assessment')"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          # Test: Must be non-negative
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+              config:
+                severity: error
+
+      - name: family_planning_visits
+        description: "Number of family planning visits (activity_type = 'family_planning')"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          # Test: Must be non-negative
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+              config:
+                severity: error
+
+
+sources:
+  - name: marts
+    description: "Core fact and dimension tables"
+    schema: marts
+    tables:
+      - name: fct_chv_activity
+        description: |
+          Fact table containing one row per CHW activity/visit.
+          Source data for all CHW performance analytics.
+        columns:
+          - name: activity_id
+            description: "Unique identifier for each activity"
+            tests:
+              - unique:
+                  config:
+                    severity: error
+              - not_null:
+                  config:
+                    severity: error
+          
+          - name: chv_id
+            description: "CHW who performed the activity"
+            tests:
+              - not_null:
+                  config:
+                    severity: warn
+          
+          - name: activity_date
+            description: "Date the activity occurred"
+            tests:
+              - not_null:
+                  config:
+                    severity: warn
+              # Test: No dates before 2023 (data collection started)
+              - dbt_utils.expression_is_true:
+                  expression: ">= '2023-01-01'"
+                  config:
+                    severity: warn
+              # Test: No future dates
+              - dbt_utils.expression_is_true:
+                  expression: "<= current_date"
+                  config:
+                    severity: error
+          
+          - name: activity_type
+            description: "Type of activity performed"
+            tests:
+              - not_null:
+                  config:
+                    severity: error
+              - accepted_values:
+                  values: 
+                    - 'pregnancy_visit'
+                    - 'child_assessment'
+                    - 'family_planning'
+                    - 'household_registration'
+                    - 'postnatal_visit'
+                    - 'nutrition_assessment'
+                    - 'referral_followup'
+                    - 'other'
+                  config:
+                    severity: warn
+          
+          - name: is_deleted
+            description: "Soft delete flag (TRUE = record is deleted)"
+            tests:
+              - not_null:
+                  config:
+                    severity: error
+              - accepted_values:
+                  values: [true, false]
+                  config:
+                    severity: error
